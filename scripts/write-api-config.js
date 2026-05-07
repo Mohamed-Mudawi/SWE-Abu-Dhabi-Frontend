@@ -31,18 +31,18 @@ if (onVercel && isHttps) {
     `window.__API_BASE__ = ${JSON.stringify(raw)};\n`;
   mode = "direct https (no proxy): " + raw;
 } else if (onVercel) {
-  // http:// upstream: requires Vercel serverless → droplet; often blocked or flaky.
+  // http://: browser calls /up/… (Edge middleware → API_BASE_URL). Port must be open on DO.
   line =
     'window.__API_USE_PROXY__ = true;\n' +
-    'window.__API_MODE__ = "vercel-proxy";\n' +
+    'window.__API_PROXY_PREFIX__ = "/up/";\n' +
+    'window.__API_MODE__ = "vercel-edge";\n' +
     "if (typeof console !== \"undefined\" && console.warn) {\n" +
     "  console.warn(\n" +
-    '    \"[fitness-ui] Proxy mode: set Vercel env API_BASE_URL (or API_PUBLIC_URL) to https://your-api-host and redeploy — then API calls go direct to your server, not /api/droplet-proxy.\"\n' +
+    '    \"[fitness-ui] API via /up/ → set Vercel API_BASE_URL=http://PUBLIC_IP:PORT. Open that TCP port on DigitalOcean + ufw; bind app to 0.0.0.0. Use https://… API URL to skip proxy.\"\n' +
     "  );\n" +
     "}\n";
   mode =
-    "proxy mode — API_BASE_URL must start with https:// to disable proxy; got: " +
-    (raw || "(empty)");
+    "edge proxy /up/ — API_BASE_URL=" + (raw || "(empty at build; set on Vercel)");
 } else {
   const browserUrl = raw || "http://127.0.0.1:8000";
   line =

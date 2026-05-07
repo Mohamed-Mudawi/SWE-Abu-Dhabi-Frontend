@@ -88,7 +88,7 @@
     </div>
     <div class="hidden" id="feedback" aria-live="polite"></div>
   </main>
-  <script src="api-config.js?v=22"></script>
+  <script src="api-config.js?v=23"></script>
   <script>
     var useProxy = !!(typeof window !== "undefined" && window.__API_USE_PROXY__);
     var baseUrl = "";
@@ -101,6 +101,10 @@
     function apiUrl(rel) {
       var p = String(rel || "").replace(/^\/+/, "");
       if (useProxy) {
+        var px = typeof window !== "undefined" && window.__API_PROXY_PREFIX__;
+        if (px) {
+          return String(px).replace(/\/+$/, "") + "/" + p;
+        }
         return "/api/droplet-proxy?forward=" + encodeURIComponent(p);
       }
       return baseUrl + "/" + p;
