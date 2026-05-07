@@ -11,16 +11,18 @@ const dropletHttp = (
 ).replace(/\/+$/, "");
 const onVercel = process.env.VERCEL === "1";
 
-let browserUrl;
+let browserUrl = dropletHttp || "http://127.0.0.1:8000";
+let line;
 if (onVercel) {
-  browserUrl = "/api/droplet";
+  line = "window.__API_USE_PROXY__ = true;\n";
 } else {
-  browserUrl = dropletHttp || "http://127.0.0.1:8000";
+  line =
+    "window.__API_USE_PROXY__ = false;\n" +
+    `window.__API_BASE__ = ${JSON.stringify(browserUrl)};\n`;
 }
 
-fs.writeFileSync(dest, `window.__API_BASE__ = ${JSON.stringify(browserUrl)};\n`);
+fs.writeFileSync(dest, line);
 console.log(
   "Wrote api-config.js:",
-  browserUrl,
-  onVercel ? "(relative proxy → " + (dropletHttp || "set API_BASE_URL") + ")" : ""
+  onVercel ? "proxy mode (needs API_BASE_URL on Vercel for serverless)" : browserUrl
 );
