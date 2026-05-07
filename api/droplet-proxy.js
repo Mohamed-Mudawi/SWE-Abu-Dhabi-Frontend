@@ -14,10 +14,19 @@ module.exports = async (req, res) => {
   const upstreamBase = String(
     process.env.API_UPSTREAM || process.env.API_BASE_URL || ""
   ).replace(/\/+$/, "");
+
   if (!upstreamBase) {
     res
       .status(500)
       .json({ message: "Set API_BASE_URL or API_UPSTREAM to your http:// droplet URL on Vercel" });
+    return;
+  }
+
+  if (process.env.VERCEL && /127\.0\.0\.1|localhost/i.test(upstreamBase)) {
+    res.status(500).json({
+      message:
+        "API_BASE_URL points to localhost. On Vercel, set it to your DigitalOcean public URL (e.g. http://YOUR.IP:8000).",
+    });
     return;
   }
 
@@ -29,11 +38,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  let sub = u.searchParams.get("forward") || "";
-  if (sub.length > 0 && !sub.endsWith("/") && u.pathname.endsWith("/")) {
-    sub += "/";
-  }
-
+  let sub = (u.searchParams.get("forward") || "").replace(/^\/+/, "");
   const extraParams = new URLSearchParams();
   u.searchParams.forEach((value, key) => {
     if (key !== "forward") extraParams.append(key, value);
@@ -51,11 +56,26 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const headers = {};
+  const headers = {
+    Accept: "*/*",
+    "User-Agent": "vercel-droplet-proxy/1",
+  };
   const hct = req.headers["content-type"];
   if (hct) headers["Content-Type"] = hct;
   const auth = req.headers.authorization;
   if (auth) headers["Authorization"] = auth;
+
+  const timeoutMs = 25000;
+  let controller;
+  let to;
+  try {
+    controller = new AbortController();
+    to = setTimeout(function () {
+      controller.abort();
+    }, timeoutMs);
+  } catch {
+    controller = null;
+  }
 
   let r;
   try {
@@ -63,11 +83,25 @@ module.exports = async (req, res) => {
       method: req.method,
       headers,
       body: body !== undefined && body.length ? body : undefined,
+      signal: controller ? controller.signal : undefined,
     });
-  } catch {
-    res.status(502).json({ message: "Upstream request failed" });
+  } catch (err) {
+    if (to) clearTimeout(to);
+    const msg = err && err.message ? err.message : String(err);
+    const cause = err && err.cause && err.cause.message ? err.cause.message : "";
+    res.status(502).json({
+      message: "Upstream request failed",
+      detail: [msg, cause].filter(Boolean).join(" — "),
+      tried: target,
+      checks: [
+        "Vercel → Project → Settings → Environment Variables: API_BASE_URL = http://<droplet-public-ip>:8000 (Production).",
+        "DigitalOcean: cloud firewall + ufw allow 8000/tcp.",
+        "On the VM: app must listen on 0.0.0.0:8000 (not only 127.0.0.1).",
+      ],
+    });
     return;
   }
+  if (to) clearTimeout(to);
 
   const text = await r.text();
   const outCt = r.headers.get("content-type");
