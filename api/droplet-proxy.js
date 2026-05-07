@@ -126,7 +126,41 @@ async function passthroughWithRedirects(
   return r;
 }
 
-module.exports = async (req, res) => {
+function copyResponseHeaders(fromHeaders, toRes) {
+  const skip = new Set([
+    "connection",
+    "transfer-encoding",
+    "keep-alive",
+    "content-length",
+  ]);
+  for (const key of Object.keys(fromHeaders)) {
+    if (!key || skip.has(key.toLowerCase())) continue;
+    const v = fromHeaders[key];
+    if (v == null) continue;
+    const lower = key.toLowerCase();
+    if (lower === "set-cookie" && Array.isArray(v)) {
+      for (const c of v) toRes.appendHeader(key, c);
+      continue;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        try {
+          toRes.appendHeader(key, item);
+        } catch (_) {
+          /* invalid header from upstream */
+        }
+      }
+      continue;
+    }
+    try {
+      toRes.setHeader(key, v);
+    } catch (_) {
+      /* invalid header from upstream */
+    }
+  }
+}
+
+async function proxyHandler(req, res) {
   const upstreamBase = normalizeUpstream(
     process.env.API_UPSTREAM || process.env.API_BASE_URL || ""
   );
@@ -204,28 +238,25 @@ module.exports = async (req, res) => {
       detail: [msg, cause].filter(Boolean).join(" — "),
       tried: target,
       checks: [
-        "Vercel → Settings → Environment Variables: set API_BASE_URL for Preview AND Production (branch deploys use Preview).",
-        "Value must be http://<droplet-public-ip>:<port> (same port the API listens on).",
-        "DigitalOcean: allow inbound TCP on that port (cloud firewall + ufw).",
-        "On the VM: bind the app to 0.0.0.0, not only 127.0.0.1.",
+        "Reliable fix: set API_BASE_URL to an https:// URL for your API (nginx/Caddy + Let’s Encrypt on the droplet, or Cloudflare proxy) and redeploy — the UI will call the API directly (no serverless hop).",
+        "If you must use http://IP:port: open that port on DigitalOcean + ufw, bind Flask to 0.0.0.0, set API_BASE_URL on Vercel for Preview and Production.",
       ],
     });
     return;
   }
 
-  const skip = new Set([
-    "connection",
-    "transfer-encoding",
-    "keep-alive",
-    "content-length",
-  ]);
-  for (const [k, v] of Object.entries(upstreamRes.headers)) {
-    if (!k || skip.has(k.toLowerCase())) continue;
-    if (k.toLowerCase() === "set-cookie" && Array.isArray(v)) {
-      for (const c of v) res.appendHeader(k, c);
-    } else if (v != null) {
-      res.setHeader(k, v);
-    }
-  }
+  copyResponseHeaders(upstreamRes.headers, res);
   res.status(upstreamRes.statusCode).send(upstreamRes.body);
+}
+
+module.exports = async (req, res) => {
+  try {
+    await proxyHandler(req, res);
+  } catch (err) {
+    if (res.headersSent) return;
+    res.status(500).json({
+      message: "Proxy error",
+      detail: String(err && err.message ? err.message : err),
+    });
+  }
 };
