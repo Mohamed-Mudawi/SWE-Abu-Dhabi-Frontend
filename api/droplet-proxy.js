@@ -10,16 +10,6 @@ async function readBody(req) {
   });
 }
 
-function getSubpath(req) {
-  const parts = req.query.path;
-  if (parts !== undefined) {
-    return Array.isArray(parts) ? parts.join("/") : String(parts);
-  }
-  const raw = (req.url || "").split("?")[0];
-  const m = raw.match(/^\/api\/droplet\/(.*)$/);
-  return m ? m[1] : "";
-}
-
 module.exports = async (req, res) => {
   const upstreamBase = String(
     process.env.API_UPSTREAM || process.env.API_BASE_URL || ""
@@ -31,13 +21,26 @@ module.exports = async (req, res) => {
     return;
   }
 
-  let sub = getSubpath(req);
-  const rawPath = (req.url || "").split("?")[0];
-  if (rawPath.endsWith("/") && sub.length > 0 && !sub.endsWith("/")) {
+  let u;
+  try {
+    u = new URL(req.url, "http://localhost");
+  } catch {
+    res.status(400).end();
+    return;
+  }
+
+  let sub = u.searchParams.get("forward") || "";
+  if (sub.length > 0 && !sub.endsWith("/") && u.pathname.endsWith("/")) {
     sub += "/";
   }
 
-  const q = req.url && req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  const extraParams = new URLSearchParams();
+  u.searchParams.forEach((value, key) => {
+    if (key !== "forward") extraParams.append(key, value);
+  });
+  const qsExtra = extraParams.toString();
+  const q = qsExtra ? "?" + qsExtra : "";
+
   const target = `${upstreamBase}/${sub}${q}`;
 
   let body;
