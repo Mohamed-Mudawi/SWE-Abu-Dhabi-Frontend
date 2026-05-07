@@ -32,9 +32,17 @@ if (onVercel && isHttps) {
   mode = "direct https (no proxy): " + raw;
 } else if (onVercel) {
   // http:// upstream: requires Vercel serverless → droplet; often blocked or flaky.
-  line = "window.__API_USE_PROXY__ = true;\n";
+  line =
+    'window.__API_USE_PROXY__ = true;\n' +
+    'window.__API_MODE__ = "vercel-proxy";\n' +
+    "if (typeof console !== \"undefined\" && console.warn) {\n" +
+    "  console.warn(\n" +
+    '    \"[fitness-ui] Proxy mode: set Vercel env API_BASE_URL (or API_PUBLIC_URL) to https://your-api-host and redeploy — then API calls go direct to your server, not /api/droplet-proxy.\"\n' +
+    "  );\n" +
+    "}\n";
   mode =
-    "proxy mode — set API_BASE_URL=http://IP:port for proxy, or use https://… API URL to skip proxy";
+    "proxy mode — API_BASE_URL must start with https:// to disable proxy; got: " +
+    (raw || "(empty)");
 } else {
   const browserUrl = raw || "http://127.0.0.1:8000";
   line =
