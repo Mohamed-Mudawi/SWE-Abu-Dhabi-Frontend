@@ -1,0 +1,7 @@
+{
+  "name": "fitness-classes-ui",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/write-api-config.js"
+  }
+}

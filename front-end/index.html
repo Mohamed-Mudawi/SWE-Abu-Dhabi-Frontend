@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fitness classes</title>
+  <link rel="stylesheet" href="styles.css?v=15" />
+</head>
+<body>
+  <header class="headerBar">
+    <h1>Fitness classes</h1>
+    <div class="headerAccount">
+      <span id="signedInAs" aria-live="polite"></span>
+      <button type="button" id="loginOrLogout">Log in</button>
+    </div>
+  </header>
+  <main class="page">
+    <div id="homePanel">
+      <p class="guestNote" id="guestHint">Log in or sign up to book a class or create one.</p>
+      <section id="reminderSettings" class="hidden reminderCard">
+        <h2>Reminder preferences</h2>
+        <p class="reminderIntro">Choose how we remind you about classes.</p>
+        <label class="checkboxLine"><input type="checkbox" id="remindByEmail" /> Email reminders</label>
+        <label class="checkboxLine"><input type="checkbox" id="remindByTelegram" /> Telegram reminders</label>
+        <label class="checkboxLine">Telegram chat ID <input id="telegramChatId" type="text" placeholder="if using Telegram" /></label>
+        <p id="telegramHelp" class="telegramHelp"></p>
+        <div class="buttonRow"><button type="button" id="saveReminders" class="btnBlue">Save preferences</button></div>
+      </section>
+      <section>
+        <h2>Upcoming classes</h2>
+        <div class="buttonRow">
+          <button type="button" id="refreshClasses" class="btnBlue">Refresh</button>
+        </div>
+        <div id="classListRoot"></div>
+      </section>
+      <section id="trainerTools" class="hidden">
+        <h2>New class (trainer)</h2>
+        <label>name <input id="newClassName" /></label>
+        <label>start <input id="classStartTime" placeholder="2027-04-18T13:00:00" /></label>
+        <label>minutes <input id="classDurationMinutes" type="number" value="60" /></label>
+        <label>repeat <input id="repeatFrequency" placeholder="weekly or blank" /></label>
+        <label>until <input id="repeatUntilDate" placeholder="only if repeating" /></label>
+        <label>room <input id="roomName" /></label>
+        <label>cap <input id="maxStudents" type="number" value="10" /></label>
+        <label>teacher <input id="instructorName" /></label>
+        <div class="buttonRow"><button type="button" id="submitNewClass" class="btnBlue">Add class</button></div>
+      </section>
+    </div>
+    <div id="loginPanel" class="hidden panelSwap">
+      <h2>Log in</h2>
+      <p class="introText">Enter your email and password.</p>
+      <label>email <input id="loginEmail" type="email" autocomplete="username" /></label>
+      <label>password <input id="loginPassword" type="password" autocomplete="current-password" /></label>
+      <div class="buttonRow">
+        <button type="button" id="submitLogin" class="btnBlue">Sign in</button>
+      </div>
+      <p class="bottomLinks">
+        Don’t have an account?
+        <button type="button" class="textLink" id="openSignupFromLogin">Sign up</button>
+      </p>
+      <p><button type="button" class="textLink" id="backHomeFromLogin">Back to classes</button></p>
+    </div>
+    <div id="signupPanel" class="hidden panelSwap">
+      <h2>Sign up</h2>
+      <p class="introText">Create a student or trainer account.</p>
+      <div class="signupCard signupNarrow">
+        <h3 id="signupRoleTitle">Sign up as student</h3>
+        <label>First Name <input id="signupFirstName" autocomplete="given-name" /></label>
+        <label>Last Name <input id="signupLastName" autocomplete="family-name" /></label>
+        <label>Phone Number <input id="signupPhone" autocomplete="tel" /></label>
+        <label>Email Address <input id="signupEmailField" type="email" autocomplete="email" /></label>
+        <label>Password <input id="signupPassword" type="password" autocomplete="new-password" /></label>
+        <div class="buttonRow">
+          <button type="button" id="submitSignup" class="btnBlue">Create student</button>
+        </div>
+        <p class="roleToggleRow">
+          <button type="button" class="textLink" id="switchTrainerOrStudent">Sign up as trainer instead</button>
+        </p>
+      </div>
+      <p class="bottomLinks">
+        Already have an account?
+        <button type="button" class="textLink" id="openLoginFromSignup">Log in</button>
+      </p>
+      <p><button type="button" class="textLink" id="backHomeFromSignup">Back to classes</button></p>
+    </div>
+    <div class="hidden" id="feedback" aria-live="polite"></div>
+  </main>
+  <script src="api-config.js"></script>
+  <script>
+    var baseUrl = String(
+      (typeof window !== "undefined" && window.__API_BASE__) || "http://127.0.0.1:8000"
+    ).replace(/\/+$/, "");
+    var tokenKey = "tok";
+    var whichGuestPage = "home";
+    var registeringAsTrainer = false;
+
+    function readToken() {
+      return localStorage.getItem(tokenKey);
+    }
+
+    function roleFromToken(rawToken) {
+      if (arguments.length === 0 || rawToken == null) rawToken = readToken();
+      try {
+        var chunk = rawToken ? rawToken.split(".")[1] : "";
+        if (!chunk) return "";
+        return JSON.parse(atob(chunk.replace(/-/g, "+").replace(/_/g, "/"))).role || "";
+      } catch (ignored) {
+        return "";
+      }
+    }
+
+    function showFeedback(text) {
+      var node = document.getElementById("feedback");
+      var line = text == null || text === undefined ? "" : String(text);
+      node.textContent = line;
+      node.classList.toggle("hidden", line.length === 0);
+    }
+
+    function jsonHeadersWithAuth() {
+      var headers = { "Content-Type": "application/json" };
+      var token = readToken();
+      if (token) headers["Authorization"] = "Bearer " + token;
+      return headers;
+    }
+
+    function requestJson(url, options) {
+      return fetch(url, options || {}).then(function (response) {
+        return response.json().then(function (data) {
+          return { response: response, data: data };
+        });
+      });
+    }
+
+    function escapeHtml(raw) {
+      if (raw == null || raw === undefined) return "";
+      return String(raw)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function bookedClassesStorageKey() {
+      return "fitness_booked:" + (sessionStorage.getItem("lastEmail") || "");
+    }
+
+    function loadBookedClassIds() {
+      try {
+        var saved = localStorage.getItem(bookedClassesStorageKey());
+        if (!saved) return [];
+        var parsed = JSON.parse(saved);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (ignored) {
+        return [];
+      }
+    }
+
+    function storeBookedClassIds(ids) {
+      if (!sessionStorage.getItem("lastEmail")) return;
+      localStorage.setItem(bookedClassesStorageKey(), JSON.stringify(ids));
+    }
+
+    function alreadyMarkedBooked(classId) {
+      if (roleFromToken() !== "member") return false;
+      return loadBookedClassIds().indexOf(String(classId)) !== -1;
+    }
+
+    function rememberBooking(classId) {
+      var asString = String(classId);
+      var ids = loadBookedClassIds();
+      if (ids.indexOf(asString) === -1) {
+        ids.push(asString);
+        storeBookedClassIds(ids);
+      }
+    }
+
+    function forgetBooking(classId) {
+      var asString = String(classId);
+      storeBookedClassIds(loadBookedClassIds().filter(function (id) { return id !== asString; }));
+    }
+
+    function refreshSignupLabels() {
+      var title = document.getElementById("signupRoleTitle");
+      var go = document.getElementById("submitSignup");
+      var flip = document.getElementById("switchTrainerOrStudent");
+      if (!title || !go || !flip) return;
+      var trainer = registeringAsTrainer;
+      title.textContent = trainer ? "Sign up as trainer" : "Sign up as student";
+      go.textContent = trainer ? "Create trainer" : "Create student";
+      flip.textContent = trainer ? "Sign up as student instead" : "Sign up as trainer instead";
+    }
+
+    function switchGuestView(page) {
+      if (readToken()) return;
+      whichGuestPage = page;
+      document.getElementById("homePanel").classList.toggle("hidden", page !== "home");
+      document.getElementById("loginPanel").classList.toggle("hidden", page !== "login");
+      document.getElementById("signupPanel").classList.toggle("hidden", page !== "signup");
+      document.getElementById("loginOrLogout").textContent = page === "home" ? "Log in" : "Home";
+      if (page === "signup") {
+        registeringAsTrainer = false;
+        refreshSignupLabels();
+      }
+      if (page === "login") setTimeout(function () { document.getElementById("loginEmail").focus(); }, 0);
+    }
+
+    function refreshHeaderAndPanels() {
+      var token = readToken();
+      var logoutButton = document.getElementById("loginOrLogout");
+      var who = document.getElementById("signedInAs");
+      var trainerBlock = document.getElementById("trainerTools");
+      var hint = document.getElementById("guestHint");
+      if (!token) {
+        who.textContent = "";
+        trainerBlock.classList.add("hidden");
+        document.getElementById("reminderSettings").classList.add("hidden");
+        hint.classList.remove("hidden");
+        switchGuestView(whichGuestPage);
+        return;
+      }
+      logoutButton.textContent = "Log out";
+      whichGuestPage = "home";
+      document.getElementById("homePanel").classList.remove("hidden");
+      document.getElementById("loginPanel").classList.add("hidden");
+      document.getElementById("signupPanel").classList.add("hidden");
+      hint.classList.add("hidden");
+      var email = sessionStorage.getItem("lastEmail") || "";
+      var role = roleFromToken(token);
+      who.textContent =
+        role === "trainer" ? (email ? email + " · trainer" : "trainer")
+          : role === "member" ? (email ? email + " · student" : "student")
+            : email || "signed in";
+      trainerBlock.classList.toggle("hidden", role !== "trainer");
+      if (role === "member") pullReminderSettings();
+      else document.getElementById("reminderSettings").classList.add("hidden");
+    }
+
+    function pullReminderSettings() {
+      var block = document.getElementById("reminderSettings");
+      if (roleFromToken() !== "member" || !readToken()) {
+        block.classList.add("hidden");
+        return;
+      }
+      requestJson(baseUrl + "/members/reminder-preferences", { headers: jsonHeadersWithAuth() })
+        .then(function (outcome) {
+          if (!outcome.response.ok) {
+            block.classList.add("hidden");
+            return;
+          }
+          var prefs = outcome.data.message || {};
+          document.getElementById("remindByEmail").checked = prefs.notify_email !== false;
+          document.getElementById("remindByTelegram").checked = !!prefs.notify_telegram;
+          document.getElementById("telegramChatId").value = prefs.telegram_chat_id || "";
+          var bot = prefs.telegram_bot_username;
+          document.getElementById("telegramHelp").textContent = bot ? "Telegram bot: @" + bot : "";
+          block.classList.remove("hidden");
+        })
+        .catch(function () {
+          block.classList.add("hidden");
+        });
+    }
+
+    function postClassReminder(classId) {
+      showFeedback("");
+      fetch(baseUrl + "/classes/reminder/" + encodeURIComponent(classId), {
+        method: "POST",
+        headers: jsonHeadersWithAuth(),
+        body: "{}",
+      })
+        .then(function (response) {
+          return response.text().then(function (raw) {
+            var parsed = {};
+            try {
+              parsed = raw ? JSON.parse(raw) : {};
+            } catch (ignored) {}
+            return { response: response, data: parsed };
+          });
+        })
+        .then(function (outcome) {
+          if (!outcome.response.ok) showFeedback(outcome.data.message || "Could not send notification.");
+          else showFeedback(outcome.data.message || "Notification sent.");
+        })
+        .catch(function () {
+          showFeedback("Notification request failed.");
+        });
+    }
+
+    function renderClassList(rows) {
+      var root = document.getElementById("classListRoot");
+      if (!rows || !rows.length) {
+        root.textContent = "Nothing upcoming.";
+        return;
+      }
+      var role = roleFromToken();
+      var trainerLoggedIn = role === "trainer";
+      var memberLoggedIn = role === "member";
+      var html = '<div class="scheduleList">';
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        var classId = row._id;
+        html += '<div class="classTile"><ul>';
+        html += '<li><span class="fieldName">name:</span> ' + escapeHtml(row.class_name) + "</li>";
+        html += '<li><span class="fieldName">time:</span> ' + escapeHtml(row.start_time) + "</li>";
+        html += '<li><span class="fieldName">location:</span> ' + escapeHtml(row.classroom) + "</li>";
+        if (row.instructor)
+          html += '<li><span class="fieldName">instructor:</span> ' + escapeHtml(row.instructor) + "</li>";
+        if (row.capacity != null && row.capacity !== "")
+          html += '<li><span class="fieldName">capacity:</span> ' + escapeHtml(row.capacity) + "</li>";
+        html += "</ul>";
+        if (trainerLoggedIn) {
+          html +=
+            '<div class="tileActions"><button type="button" class="btnBlue remindMembersBtn" data-classid="' +
+            escapeHtml(classId) +
+            '">Send notification</button><button type="button" class="btnBlue showRosterBtn" data-classid="' +
+            escapeHtml(classId) +
+            '" data-expanded="0">View members</button><div class="rosterBlock hidden"></div></div>';
+        } else if (memberLoggedIn) {
+          var booked = alreadyMarkedBooked(classId);
+          html +=
+            '<div class="tileActions"><button type="button" class="btnBlue ' +
+            (booked ? "dropClassBtn" : "joinClassBtn") +
+            '" data-classid="' +
+            escapeHtml(classId) +
+            '">' +
+            (booked ? "Unbook" : "Book class") +
+            "</button></div>";
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+      root.innerHTML = html;
+    }
+
+    function loadClassRoster(classId, rosterButton, rosterArea) {
+      rosterArea.classList.remove("hidden");
+      rosterArea.innerHTML = '<p class="rosterLoading">Loading…</p>';
+      function closeRoster() {
+        rosterArea.innerHTML = "";
+        rosterArea.classList.add("hidden");
+        rosterButton.textContent = "View members";
+        rosterButton.setAttribute("data-expanded", "0");
+      }
+      fetch(baseUrl + "/classes/" + encodeURIComponent(classId) + "/members", {
+        headers: jsonHeadersWithAuth(),
+      })
+        .then(function (response) {
+          return response.text().then(function (raw) {
+            var parsed = {};
+            try {
+              parsed = raw ? JSON.parse(raw) : {};
+            } catch (ignored) {}
+            return { response: response, data: parsed };
+          });
+        })
+        .then(function (outcome) {
+          if (!outcome.response.ok) {
+            closeRoster();
+            showFeedback(outcome.data.message || "Could not load members.");
+            return;
+          }
+          var names = Array.isArray(outcome.data.message) ? outcome.data.message : [];
+          rosterArea.innerHTML = names.length
+            ? '<ul class="nameList">' +
+            names.map(function (name) {
+              return "<li>" + escapeHtml(name) + "</li>";
+            }).join("") +
+            "</ul>"
+            : '<p class="rosterEmpty">(no members booked)</p>';
+          rosterButton.textContent = "Hide";
+          rosterButton.setAttribute("data-expanded", "1");
+        })
+        .catch(function () {
+          closeRoster();
+          showFeedback("Members request failed.");
+        });
+    }
+
+    async function bookOrCancel(classId, cancelling) {
+      showFeedback("");
+      var response = await fetch(
+        baseUrl + "/classes/" + encodeURIComponent(classId) + "/book",
+        cancelling
+          ? { method: "DELETE", headers: jsonHeadersWithAuth() }
+          : { method: "POST", headers: jsonHeadersWithAuth(), body: "{}" }
+      );
+      var body = await response.json().catch(function () { return {}; });
+      if (!response.ok) {
+        showFeedback(body.message || "Error " + response.status);
+        return;
+      }
+      if (cancelling) forgetBooking(classId);
+      else rememberBooking(classId);
+      showFeedback(body.message || (cancelling ? "Unbooked." : "Booked."));
+      await refreshClassList({ keepMessage: true });
+    }
+
+    function joinClass(id) { bookOrCancel(id, false); }
+    function dropClass(id) { bookOrCancel(id, true); }
+
+    function refreshClassList(options) {
+      var keepBanner = options && options.keepMessage;
+      if (!keepBanner) showFeedback("");
+      return requestJson(baseUrl + "/classes/")
+        .then(function (outcome) {
+          if (!outcome.response.ok) {
+            showFeedback(outcome.data.message || "Couldn't load classes.");
+            return;
+          }
+          renderClassList(outcome.data.message);
+        })
+        .catch(function () {
+          showFeedback("Classes request failed (server or CORS).");
+        });
+    }
+
+    document.querySelector("main.page").addEventListener("click", function (event) {
+      var remindBtn = event.target.closest(".remindMembersBtn");
+      if (remindBtn && roleFromToken() === "trainer") {
+        var remindId = remindBtn.getAttribute("data-classid");
+        if (remindId) postClassReminder(remindId);
+        return;
+      }
+      var rosterBtn = event.target.closest(".showRosterBtn");
+      if (rosterBtn && roleFromToken() === "trainer") {
+        var rosterArea = rosterBtn.parentElement.querySelector(".rosterBlock");
+        if (!rosterArea) return;
+        if (rosterBtn.getAttribute("data-expanded") === "1") {
+          rosterArea.classList.add("hidden");
+          rosterBtn.textContent = "View members";
+          rosterBtn.setAttribute("data-expanded", "0");
+          return;
+        }
+        var openId = rosterBtn.getAttribute("data-classid");
+        if (openId) loadClassRoster(openId, rosterBtn, rosterArea);
+        return;
+      }
+      var dropBtn = event.target.closest(".dropClassBtn");
+      if (dropBtn && roleFromToken() === "member") {
+        var dropId = dropBtn.getAttribute("data-classid");
+        if (dropId) dropClass(dropId);
+        return;
+      }
+      var joinBtn = event.target.closest(".joinClassBtn");
+      if (joinBtn && roleFromToken() === "member") {
+        var joinId = joinBtn.getAttribute("data-classid");
+        if (joinId) joinClass(joinId);
+      }
+    });
+
+    document.getElementById("loginOrLogout").onclick = function () {
+      if (readToken()) {
+        localStorage.removeItem(tokenKey);
+        sessionStorage.removeItem("lastEmail");
+        whichGuestPage = "home";
+        refreshHeaderAndPanels();
+        showFeedback("Logged out.");
+        refreshClassList({ keepMessage: true });
+        return;
+      }
+      whichGuestPage = whichGuestPage === "login" || whichGuestPage === "signup" ? "home" : "login";
+      switchGuestView(whichGuestPage);
+    };
+
+    function goBackToClasses() {
+      whichGuestPage = "home";
+      switchGuestView("home");
+    }
+
+    document.getElementById("openSignupFromLogin").onclick = function () {
+      whichGuestPage = "signup";
+      switchGuestView("signup");
+    };
+    document.getElementById("openLoginFromSignup").onclick = function () {
+      whichGuestPage = "login";
+      switchGuestView("login");
+    };
+    document.getElementById("backHomeFromLogin").onclick = goBackToClasses;
+    document.getElementById("backHomeFromSignup").onclick = goBackToClasses;
+
+    document.getElementById("submitLogin").onclick = function () {
+      showFeedback("");
+      var email = document.getElementById("loginEmail").value.trim();
+      requestJson(baseUrl + "/login/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: document.getElementById("loginPassword").value }),
+      })
+        .then(function (outcome) {
+          if (!outcome.response.ok) {
+            showFeedback(outcome.data.message || "Login failed.");
+            return;
+          }
+          localStorage.setItem(tokenKey, outcome.data.access_token);
+          sessionStorage.setItem("lastEmail", email);
+          whichGuestPage = "home";
+          refreshHeaderAndPanels();
+          showFeedback("Logged in.");
+          refreshClassList({ keepMessage: true });
+        })
+        .catch(function () {
+          showFeedback("Login failed (network / CORS).");
+        });
+    };
+
+    document.getElementById("refreshClasses").onclick = refreshClassList;
+
+    document.getElementById("saveReminders").onclick = function () {
+      showFeedback("");
+      var byEmail = document.getElementById("remindByEmail").checked;
+      var byTelegram = document.getElementById("remindByTelegram").checked;
+      var chatId = document.getElementById("telegramChatId").value.trim();
+      requestJson(baseUrl + "/members/reminder-preferences", {
+        method: "PATCH",
+        headers: jsonHeadersWithAuth(),
+        body: JSON.stringify({
+          notify_email: byEmail,
+          notify_telegram: byTelegram,
+          telegram_chat_id: chatId,
+        }),
+      })
+        .then(function (outcome) {
+          if (!outcome.response.ok) showFeedback(outcome.data.message || "Could not save.");
+          else showFeedback(outcome.data.message || "Saved.");
+        })
+        .catch(function () {
+          showFeedback("Save failed.");
+        });
+    };
+
+    document.getElementById("submitNewClass").onclick = async function () {
+      showFeedback("");
+      var response = await fetch(baseUrl + "/classes/", {
+        method: "POST",
+        headers: jsonHeadersWithAuth(),
+        body: JSON.stringify({
+          class_name: document.getElementById("newClassName").value.trim(),
+          class_schedule: {
+            start: document.getElementById("classStartTime").value.trim(),
+            duration: Number(document.getElementById("classDurationMinutes").value),
+            frequency: document.getElementById("repeatFrequency").value.trim(),
+            end_date: document.getElementById("repeatUntilDate").value.trim(),
+          },
+          classroom: document.getElementById("roomName").value.trim(),
+          capacity: Number(document.getElementById("maxStudents").value),
+          instructor: document.getElementById("instructorName").value.trim(),
+        }),
+      });
+      var body;
+      try {
+        body = await response.json();
+      } catch (ignored) {
+        showFeedback("Bad response from server.");
+        return;
+      }
+      if (!response.ok) {
+        showFeedback(body.message || "Error " + response.status);
+        return;
+      }
+      showFeedback(body.message);
+      refreshClassList({ keepMessage: true });
+    };
+
+    function postSignup(path, payload) {
+      showFeedback("");
+      requestJson(baseUrl + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+        .then(function (outcome) {
+          if (!outcome.response.ok) showFeedback(outcome.data.message || "Sign-up failed.");
+          else showFeedback(outcome.data.message || "OK");
+        })
+        .catch(function () {
+          showFeedback("Sign-up failed (network).");
+        });
+    }
+
+    document.getElementById("switchTrainerOrStudent").onclick = function () {
+      registeringAsTrainer = !registeringAsTrainer;
+      refreshSignupLabels();
+    };
+
+    document.getElementById("submitSignup").onclick = function () {
+      postSignup(registeringAsTrainer ? "/trainers/" : "/members/", {
+        first_name: document.getElementById("signupFirstName").value.trim(),
+        last_name: document.getElementById("signupLastName").value.trim(),
+        phone_number: document.getElementById("signupPhone").value.trim(),
+        email: document.getElementById("signupEmailField").value.trim(),
+        password: document.getElementById("signupPassword").value,
+      });
+    };
+
+    refreshSignupLabels();
+    refreshHeaderAndPanels();
+    refreshClassList();
+
+  </script>
+</body>
+</html>
