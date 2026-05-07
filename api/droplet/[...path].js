@@ -21,9 +21,13 @@ function getSubpath(req) {
 }
 
 module.exports = async (req, res) => {
-  const upstream = String(process.env.API_UPSTREAM || "").replace(/\/+$/, "");
-  if (!upstream) {
-    res.status(500).json({ message: "API_UPSTREAM is not set on Vercel" });
+  const upstreamBase = String(
+    process.env.API_UPSTREAM || process.env.API_BASE_URL || ""
+  ).replace(/\/+$/, "");
+  if (!upstreamBase) {
+    res
+      .status(500)
+      .json({ message: "Set API_BASE_URL or API_UPSTREAM to your http:// droplet URL on Vercel" });
     return;
   }
 
@@ -34,7 +38,7 @@ module.exports = async (req, res) => {
   }
 
   const q = req.url && req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
-  const target = `${upstream}/${sub}${q}`;
+  const target = `${upstreamBase}/${sub}${q}`;
 
   let body;
   try {
