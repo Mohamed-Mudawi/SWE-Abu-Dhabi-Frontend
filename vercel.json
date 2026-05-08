@@ -1,9 +1,4 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": ".",
-  "functions": {
-    "api/droplet-proxy.js": {
-      "maxDuration": 30
-    }
-  }
+  "outputDirectory": "."
 }

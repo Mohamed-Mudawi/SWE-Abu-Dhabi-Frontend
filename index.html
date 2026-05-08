@@ -1,13 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Fitness classes</title>
-  <link rel="stylesheet" href="styles.css?v=16" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
-
 <body>
   <header class="headerBar">
     <h1>Fitness classes</h1>
@@ -24,8 +22,7 @@
         <p class="reminderIntro">Choose how we remind you about classes.</p>
         <label class="checkboxLine"><input type="checkbox" id="remindByEmail" /> Email reminders</label>
         <label class="checkboxLine"><input type="checkbox" id="remindByTelegram" /> Telegram reminders</label>
-        <label class="checkboxLine">Telegram chat ID <input id="telegramChatId" type="text"
-            placeholder="if using Telegram" /></label>
+        <label class="checkboxLine">Telegram chat ID <input id="telegramChatId" type="text" placeholder="if using Telegram" /></label>
         <p id="telegramHelp" class="telegramHelp"></p>
         <div class="buttonRow"><button type="button" id="saveReminders" class="btnBlue">Save preferences</button></div>
       </section>
@@ -88,27 +85,11 @@
     </div>
     <div class="hidden" id="feedback" aria-live="polite"></div>
   </main>
-  <script src="api-config.js?v=23"></script>
+  <script src="api-config.js"></script>
   <script>
-    var useProxy = !!(typeof window !== "undefined" && window.__API_USE_PROXY__);
-    var baseUrl = "";
-    if (!useProxy) {
-      baseUrl = String(
-        (typeof window !== "undefined" && window.__API_BASE__) || "http://127.0.0.1:8000"
-      ).replace(/\/+$/, "");
-    }
-
-    function apiUrl(rel) {
-      var p = String(rel || "").replace(/^\/+/, "");
-      if (useProxy) {
-        var px = typeof window !== "undefined" && window.__API_PROXY_PREFIX__;
-        if (px) {
-          return String(px).replace(/\/+$/, "") + "/" + p;
-        }
-        return "/api/droplet-proxy?forward=" + encodeURIComponent(p);
-      }
-      return baseUrl + "/" + p;
-    }
+    var baseUrl = String(
+      (typeof window !== "undefined" && window.__API_BASE__) || "http://127.0.0.1:6969"
+    ).replace(/\/+$/, "");
     var tokenKey = "tok";
     var whichGuestPage = "home";
     var registeringAsTrainer = false;
@@ -259,7 +240,7 @@
         block.classList.add("hidden");
         return;
       }
-      requestJson(apiUrl("members/reminder-preferences"), { headers: jsonHeadersWithAuth() })
+      requestJson(baseUrl + "/members/reminder-preferences", { headers: jsonHeadersWithAuth() })
         .then(function (outcome) {
           if (!outcome.response.ok) {
             block.classList.add("hidden");
@@ -280,7 +261,7 @@
 
     function postClassReminder(classId) {
       showFeedback("");
-      fetch(apiUrl("classes/reminder/" + encodeURIComponent(classId)), {
+      fetch(baseUrl + "/classes/reminder/" + encodeURIComponent(classId), {
         method: "POST",
         headers: jsonHeadersWithAuth(),
         body: "{}",
@@ -290,7 +271,7 @@
             var parsed = {};
             try {
               parsed = raw ? JSON.parse(raw) : {};
-            } catch (ignored) { }
+            } catch (ignored) {}
             return { response: response, data: parsed };
           });
         })
@@ -358,7 +339,7 @@
         rosterButton.textContent = "View members";
         rosterButton.setAttribute("data-expanded", "0");
       }
-      fetch(apiUrl("classes/" + encodeURIComponent(classId) + "/members"), {
+      fetch(baseUrl + "/classes/" + encodeURIComponent(classId) + "/members", {
         headers: jsonHeadersWithAuth(),
       })
         .then(function (response) {
@@ -366,7 +347,7 @@
             var parsed = {};
             try {
               parsed = raw ? JSON.parse(raw) : {};
-            } catch (ignored) { }
+            } catch (ignored) {}
             return { response: response, data: parsed };
           });
         })
@@ -396,7 +377,7 @@
     async function bookOrCancel(classId, cancelling) {
       showFeedback("");
       var response = await fetch(
-        apiUrl("classes/" + encodeURIComponent(classId) + "/book"),
+        baseUrl + "/classes/" + encodeURIComponent(classId) + "/book",
         cancelling
           ? { method: "DELETE", headers: jsonHeadersWithAuth() }
           : { method: "POST", headers: jsonHeadersWithAuth(), body: "{}" }
@@ -418,7 +399,7 @@
     function refreshClassList(options) {
       var keepBanner = options && options.keepMessage;
       if (!keepBanner) showFeedback("");
-      return requestJson(apiUrl("classes/"))
+      return requestJson(baseUrl + "/classes/")
         .then(function (outcome) {
           if (!outcome.response.ok) {
             showFeedback(outcome.data.message || "Couldn't load classes.");
@@ -498,7 +479,7 @@
     document.getElementById("submitLogin").onclick = function () {
       showFeedback("");
       var email = document.getElementById("loginEmail").value.trim();
-      requestJson(apiUrl("login/"), {
+      requestJson(baseUrl + "/login/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email, password: document.getElementById("loginPassword").value }),
@@ -527,7 +508,7 @@
       var byEmail = document.getElementById("remindByEmail").checked;
       var byTelegram = document.getElementById("remindByTelegram").checked;
       var chatId = document.getElementById("telegramChatId").value.trim();
-      requestJson(apiUrl("members/reminder-preferences"), {
+      requestJson(baseUrl + "/members/reminder-preferences", {
         method: "PATCH",
         headers: jsonHeadersWithAuth(),
         body: JSON.stringify({
@@ -547,7 +528,7 @@
 
     document.getElementById("submitNewClass").onclick = async function () {
       showFeedback("");
-      var response = await fetch(apiUrl("classes/"), {
+      var response = await fetch(baseUrl + "/classes/", {
         method: "POST",
         headers: jsonHeadersWithAuth(),
         body: JSON.stringify({
@@ -580,7 +561,7 @@
 
     function postSignup(path, payload) {
       showFeedback("");
-      requestJson(apiUrl(path.replace(/^\/+/, "")), {
+      requestJson(baseUrl + path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -615,5 +596,4 @@
 
   </script>
 </body>
-
 </html>
