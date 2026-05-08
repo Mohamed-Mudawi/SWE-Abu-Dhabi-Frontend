@@ -20,7 +20,21 @@ if (onVercel && !raw) {
   process.exit(1);
 }
 
-const url = (raw || "http://127.0.0.1:6969").replace(/\/+$/, "");
+const fallbackLocal = "http://127.0.0.1:6969";
+const url = (raw || fallbackLocal).replace(/\/+$/, "");
+const isHttps = /^https:\/\//i.test(raw);
 
-fs.writeFileSync(dest, `window.__API_BASE__ = ${JSON.stringify(url)};\n`);
-console.log("Wrote api-config.js:", url);
+let fileContents;
+let logLine;
+
+if (onVercel && raw && !isHttps) {
+  // HTTPS page cannot call http:// API (mixed content). Browser uses /api/droplet-proxy; function uses API_BASE_URL at runtime.
+  fileContents = "window.__API_USE_PROXY__ = true;\n";
+  logLine = "proxy mode (mixed-content safe): " + url;
+} else {
+  fileContents = `window.__API_BASE__ = ${JSON.stringify(url)};\n`;
+  logLine = "direct: " + url;
+}
+
+fs.writeFileSync(dest, fileContents);
+console.log("Wrote api-config.js:", logLine);
